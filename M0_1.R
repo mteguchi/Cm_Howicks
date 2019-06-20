@@ -5,7 +5,7 @@
 rm(list=ls())
 
 library(rjags)
-SAVE <- TRUE
+SAVE <- F
 runDate <- Sys.Date()
 tBegin <- Sys.time()
 sysInfo <- Sys.info()
@@ -17,9 +17,9 @@ ifelse(sysInfo[1] == 'Linux',
 D00 <- dirSelector()
 
 ## set MCMC parameters
-n.adapt <- 50000
-n.update <- 10000
-n.iter <- 10000
+n.adapt <- 5000
+n.update <- 1000
+n.iter <- 1000
 n.chains <- 5
 
 modelName <- "models/Model_M0.txt"
