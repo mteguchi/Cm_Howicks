@@ -1,0 +1,43 @@
+---
+title: "Data exploration for Cm Howicks 2019"
+output: html_notebook
+---
+
+This document summarizes the initial data exploration for capture data of green turtles at Howick's group of islands in the northern Great Barrier Reef. Data are from Ian Bell. 
+
+```{r}
+library(tidyverse)
+library(readr)
+
+col.def <- cols(PTAG = col_character(),
+                TAG = col_integer(),
+                TAGST = col_character(),
+                SP = col_character(),
+                SEX = col_character(),
+                AGECL = col_character(),
+                CDATE = col_date(format = "%m/%d/%Y"),
+                LOCAL = col_character(),
+                YEAR = col_integer(),
+                HABIT = col_character(),
+                PRIAC = col_character(),
+                SECAC = col_character(),
+                TERAC = col_character(),
+                TERAC2 = col_character(),
+                EXPER1 = col_character(),
+                EXPER2 = col_character(),
+                EXPER3 = col_character(),
+                TCLUT = col_character(),
+                CCL = col_double())
+
+dat.1 <- read_csv(file = "data/juve_Cm_v1.csv", col_types = col.def)
+
+dat.1 %>% mutate(PTAG = as.factor(PTAG),
+                 TAGST = as.factor(TAGST),
+                 SP = as.factor(SP),
+                 SEX = as.factor(SEX),
+                 AGECL = as.factor(AGECL),
+                 LOCAL = as.factor(LOCAL),
+                 HABIT = as.factor(HABIT)) -> dat.1
+summary(dat.1)
+```
+
