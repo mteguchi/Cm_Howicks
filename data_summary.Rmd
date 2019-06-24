@@ -8,6 +8,9 @@ This document summarizes the initial data exploration for capture data of green 
 ```{r}
 library(tidyverse)
 library(readr)
+library(reshape)
+library(RMark)
+library(lubridate)
 
 col.def <- cols(PTAG = col_character(),
                 TAG = col_integer(),
@@ -37,7 +40,108 @@ dat.1 %>% mutate(PTAG = as.factor(PTAG),
                  SEX = as.factor(SEX),
                  AGECL = as.factor(AGECL),
                  LOCAL = as.factor(LOCAL),
-                 HABIT = as.factor(HABIT)) -> dat.1
+                 HABIT = as.factor(HABIT)) %>%
+  transmute(ID = paste(PTAG, TAG, sep = "-"),
+            detect = 1,
+            TAGST = TAGST,
+            SEX = SEX,
+            DATE = CDATE,
+            LOCAL = LOCAL,
+            YEAR = year(CDATE),
+            CCL = CCL)-> dat.1
 summary(dat.1)
+```
+
+Create mark input data file.  Here is a good source for this process (https://sites.google.com/site/cmrsoftware/lecture-lab-schedule/3-intro-to-mark-rmark/formatting-data-for-mark-and-rmark):
+
+```{r}
+
+years <- data.frame(YEAR = min(dat.1$YEAR): max(dat.1$YEAR))
+
+tmp <-melt(dat.1, 
+           id.var = c("ID", "YEAR"), 
+           measure.var = "detect")
+
+dat.01 <- cast(tmp, ID ~ YEAR)
+dat.01$'2000' <- 0
+dat.01$'2001' <- 0
+dat.01$'2002' <- 0
+dat.01$'2003' <- 0
+dat.01$'2009' <- 0
+dat.01$'2010' <- 0
+dat.01$'2011' <- 0
+dat.01$'2012' <- 0
+dat.01$'2013' <- 0
+dat.01$'2019' <- 0
+
+dat.01.1 <- dat.01[, 2:ncol(dat.01)]
+dat.01.1[dat.01.1 > 1] <- 1
+dat.01 <- cbind(dat.01$ID, dat.01.1[order(names(dat.01.1))])
+
+c <- ncol(dat.01)
+r <- nrow(dat.01)
+out.01 <- array(dim = r)
+for (k in 1:r){
+  out.01[k] <- paste0(dat.01[k, 2:c], collapse = "")
+}
+
+caps.hist <- data.frame(ch = out.01, freq = 1)
+
+```
+
+Create covariates
+```{r}
+# time between two captures:
+#cap.dates <- as.Date(colnames(dat.01[2:c]))
+#time.dif <- cap.dates[2:c] - cap.dates[1:(c-1)]
+
+# number of capture days per year:
+dat.1 %>% select(DATE) -> tmp1
+dat.1.date <- unique(tmp1) 
+
+dat.1.date %>%
+  mutate(YEAR = year(DATE)) %>%
+  group_by(YEAR) %>% 
+  summarise(days = n()) %>%
+  right_join(years, by = "YEAR") %>%
+  transmute(time = as.factor(YEAR),
+            days = days) -> catch.days
+
+catch.days[is.na(catch.days$days), "days"] <- 0
+```
+
+Try running a simple CJS. I totally forget how these things work... why would phi for non-sampling years come out to be 1.0 and capture probability non zero? 
+
+```{r}
+dp <- process.data(caps.hist, 
+                   begin.time = 1996, 
+                   model = "CJS")
+
+ddl <- make.design.data(dp)
+ddl$p <- merge_design.covariates(ddl$p, catch.days)
+
+# models:
+dot <- list(formula = ~1)
+time <- list(formula = ~time)
+effort <- list(formula = ~days)
+
+# create formulas for Phi
+Phi.dot <- dot
+Phi.time <- time 
+
+#create formulas for p
+p.effort <- effort
+
+model.pEffort.phidot <- mark(dp,ddl,
+                             model.parameters=list(p=p.effort,
+                                                   Phi=Phi.dot), 
+                             output=FALSE,
+                             threads = 4)
+
+model.pEffort.phiT <- mark(dp,ddl,
+                           model.parameters=list(p=p.effort,
+                                                 Phi=Phi.time), 
+                           output=FALSE,
+                           threads = 4)
 ```
 
