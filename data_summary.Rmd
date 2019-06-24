@@ -110,7 +110,7 @@ dat.1.date %>%
 catch.days[is.na(catch.days$days), "days"] <- 0
 ```
 
-Try running a simple CJS. I totally forget how these things work... why would phi for non-sampling years come out to be 1.0 and capture probability non zero? 
+Try running simple CJS models. I totally forget how these things work... why would phi for non-sampling years come out to be 1.0 and capture probability non zero, when using # days per year as a covariate? 
 
 ```{r}
 dp <- process.data(caps.hist, 
