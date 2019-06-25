@@ -12,6 +12,8 @@ library(reshape)
 library(RMark)
 library(lubridate)
 
+save.file <- F
+
 col.def <- cols(PTAG = col_character(),
                 TAG = col_integer(),
                 TAGST = col_character(),
@@ -76,7 +78,18 @@ dat.01$'2019' <- 0
 
 dat.01.1 <- dat.01[, 2:ncol(dat.01)]
 dat.01.1[dat.01.1 > 1] <- 1
-dat.01 <- cbind(dat.01$ID, dat.01.1[order(names(dat.01.1))])
+dat.01 <- cbind(dat.01$ID, 
+                dat.01.1[order(names(dat.01.1))]) %>%
+  mutate(ID = dat.01$ID) %>%
+  select(-"dat.01$ID")
+
+# from https://www.r-bloggers.com/r-recipe-reordering-columns-in-a-flexible-way/
+dat.01 <- dat.01[, c("ID", setdiff(names(dat.01), "ID"))]
+
+if (save.file)
+  write.csv(dat.01, file = "data/juve_Cm_01_v1.csv", 
+            row.names = F,
+            quote = F)
 
 c <- ncol(dat.01)
 r <- nrow(dat.01)
@@ -86,6 +99,8 @@ for (k in 1:r){
 }
 
 caps.hist <- data.frame(ch = out.01, freq = 1)
+
+
 
 ```
 
