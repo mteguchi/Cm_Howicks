@@ -1,0 +1,171 @@
+---
+title: "Estimating juvenile survival rates of green turtles at Howicks group of islands"
+output: html_notebook
+---
+
+This document describes modeling of juvenile survival rates and capture probabilities through Cormack-Jolly-Seber model and the Bayesian approach. The model is from Kery and Schaub. It uses CCL as a covariate. 
+
+```{r}
+rm(list=ls())
+library(jagsUI)
+library(tidyverse)
+library(lubridate)
+library(reshape)
+library(bayesplot)
+library(ggridges)
+
+
+source("Cm_Howicks_functions.R")
+
+# initial values - when removing z, no input
+initsFunction <- function(ch){
+  phi <- rbeta(1,2,2)
+  p <- rbeta(1,2,2)
+  z <- known.state.cjs(ch)
+  b <- rnorm(1, 0, 50)
+  A <- list(mean.phi = phi, mean.p = p, z = z, beta = b)
+  return(A)
+}
+
+MCMC.params <- list(model.file = "models/Model_CJS_pt.txt",
+                       n.chains = 3,
+                       n.samples = 50000,
+                       n.burnin = 30000,
+                       n.thin = 5)
+
+```
+
+Get data - from Ian Bell.
+
+```{r}
+col.def <- cols(PTAG = col_character(),
+                TAG = col_integer(),
+                TAGST = col_character(),
+                SP = col_character(),
+                SEX = col_character(),
+                AGECL = col_character(),
+                CDATE = col_date(format = "%m/%d/%Y"),
+                LOCAL = col_character(),
+                YEAR = col_integer(),
+                HABIT = col_character(),
+                PRIAC = col_character(),
+                SECAC = col_character(),
+                TERAC = col_character(),
+                TERAC2 = col_character(),
+                EXPER1 = col_character(),
+                EXPER2 = col_character(),
+                EXPER3 = col_character(),
+                TCLUT = col_character(),
+                CCL = col_double())
+
+dat.1 <- read_csv(file = "data/juve_Cm_v1.csv", col_types = col.def)
+
+dat.1 %>% mutate(PTAG = as.factor(PTAG),
+                 TAGST = as.factor(TAGST),
+                 SP = as.factor(SP),
+                 SEX = as.factor(SEX),
+                 AGECL = as.factor(AGECL),
+                 LOCAL = as.factor(LOCAL),
+                 HABIT = as.factor(HABIT)) %>%
+  transmute(ID = paste(PTAG, TAG, sep = "-"),
+            detect = 1,
+            TAGST = TAGST,
+            SEX = SEX,
+            DATE = CDATE,
+            LOCAL = LOCAL,
+            HABIT = HABIT,
+            YEAR = YEAR,
+            CCL = CCL)-> dat.1
+```
+
+Set up data for analysis.  Captures within each season are condensed to one column.  Also, CCL should be extracted for the first capture. 
+
+```{r}
+CJS.data <- dat2CJS(dat.1, save.file = FALSE)
+CJS.data$data %>% rownames_to_column(var = "ID") -> data.CJS
+
+```
+
+Then get ready for CJS anlaysis
+
+```{r}
+# capture history
+CH <- as.matrix(CJS.data$data)
+
+nInd <- nrow(CJS.data$data)
+
+ns <- colSums(CJS.data$data)
+
+# find the first capture date
+get.first <- function(x) min(which(x != 0))
+f <- apply(CH, 1, get.first)
+
+## parameters to monitor - when this is changed, make sure to change
+## summary statistics indices at the end of this script. 
+parameters <- c("p", "mean.phi", "N")
+
+jags.data <- list(y = CH, f = f, nind = nInd, 
+                  n.occasions = dim(CH)[2],
+                  n = ns, T = ncol(CJS.data$data))
+
+inits <- lapply(replicate(MCMC.params$n.chains, 
+                          CH, 
+                          simplify = FALSE), 
+                initsFunction)
+
+jm <- jags(data = jags.data,
+           inits = inits,
+           parameters.to.save= parameters,
+           model.file = MCMC.params$model.file,
+           n.chains = MCMC.params$n.chains,
+           n.burnin = MCMC.params$n.burnin,
+           n.thin = MCMC.params$n.thin,
+           n.iter = MCMC.params$n.samples,
+           DIC = T, 
+           parallel=T)
+
+out.list <- list(jags.out = jm,
+                   jags.data = jags.data)
+
+ saveRDS(out.list, file = "RData/CJS_pt.rds")
+
+```
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm$samples, c("mean.phi"))
+mcmc_dens(jm$samples, c("mean.phi"))
+```
+
+```{r}
+# look at trace and posteriors
+mcmc_dens(jm$samples, c("p[1]", "p[2]", "p[3]", "p[4]", "p[5]", "p[6]"))
+mcmc_dens(jm$samples, c("p[7]","p[8]", "p[9]", "p[10]", "p[11]", "p[12]", "p[13]"))
+#mcmc_dens(jm$samples, c("mean.phi"))
+
+```
+
+```{r}
+# look at trace and posteriors
+mcmc_dens(jm$samples, c("N[1]", "N[2]", "N[3]", "N[4]", "N[5]", "N[6]"))
+mcmc_dens(jm$samples, c("N[7]","N[8]", "N[9]", "N[10]", "N[11]", "N[12]", "N[13]"))
+#mcmc_dens(jm$samples, c("mean.phi"))
+
+```
+
+```{r}
+Ns.df <- extract.posterior("N", jm$samples)
+colnames(Ns.df) <- sort(unique(dat.1$YEAR))
+
+Ns.df.2 <- melt(Ns.df, 
+                value.name = "N", 
+                variable.name = "Year")
+
+colnames(Ns.df.2) <- c("Year", "N")
+
+ggplot(data = Ns.df.2) + 
+  geom_density_ridges2(aes(y = Year, x = N),
+                       fill = "red") + 
+  xlim(c(0, 2500))
+```
+

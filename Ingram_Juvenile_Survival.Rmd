@@ -1,0 +1,190 @@
+---
+title: "Estimating juvenile survival rates of green turtles at Howicks group of islands"
+output: html_notebook
+---
+
+This document describes modeling of juvenile survival rates and capture probabilities through Cormack-Jolly-Seber model and the Bayesian approach. The model is from Kery and Schaub. It uses CCL as a covariate. 
+
+```{r}
+rm(list=ls())
+library(jagsUI)
+library(tidyverse)
+library(lubridate)
+library(reshape)
+library(bayesplot)
+
+dat2CJS <- function(dat.1, save.file = TRUE){
+  
+  # Create ID by Date and assign 1s
+  tmp <-melt(dat.1, 
+             id.var = c("ID", "YEAR"), 
+             measure.var = "detect")
+  
+  # make a table with ID by year
+  dat.01 <- cast(tmp, ID ~ YEAR)
+  
+  # replace > 1 with ones
+  dat.01 <- as.data.frame(dat.01) %>%
+    remove_rownames() %>%
+    column_to_rownames(var = "ID")
+  
+  dat.01[(dat.01 > 1)] <- 1
+  
+  # save file for later
+  if (save.file){
+    out.name <- "data/juve_Cm_01_CJS.csv"
+    write.csv(dat.01, 
+              file = out.name, 
+              row.names = T,
+              quote = F)
+    
+  } else {
+    out.name <- "not.saved"
+  }
+  
+  out <- list(filename = out.name,
+              data = dat.01)
+  
+  return(out)
+              
+}
+
+known.state.cjs <- function(ch){
+  state <- ch
+  for (i in 1:dim(ch)[1]){
+    n1 <- min(which(ch[i,]==1))
+    n2 <- max(which(ch[i,]==1))
+    state[i,n1:n2] <- 1
+    state[i,n1] <- NA
+  }
+  state[state==0] <- NA
+  return(state)
+}
+
+# initial values - when removing z, no input
+initsFunction <- function(ch){
+  phi <- rbeta(1,2,2)
+  p <- rbeta(1,2,2)
+  z <- known.state.cjs(ch)
+  b <- rnorm(1, 0, 50)
+  A <- list(mean.phi = phi, mean.p = p, z = z, beta = b)
+  return(A)
+}
+
+
+MCMC.params <- list(model.file = "models/Model_CJS_firstCCL.txt",
+                       n.chains = 3,
+                       n.samples = 50000,
+                       n.burnin = 30000,
+                       n.thin = 5)
+
+
+```
+
+Get data - from Ian Bell.
+
+```{r}
+col.def <- cols(PTAG = col_character(),
+                TAG = col_integer(),
+                TAGST = col_character(),
+                SP = col_character(),
+                SEX = col_character(),
+                AGECL = col_character(),
+                CDATE = col_date(format = "%m/%d/%Y"),
+                LOCAL = col_character(),
+                YEAR = col_integer(),
+                HABIT = col_character(),
+                PRIAC = col_character(),
+                SECAC = col_character(),
+                TERAC = col_character(),
+                TERAC2 = col_character(),
+                EXPER1 = col_character(),
+                EXPER2 = col_character(),
+                EXPER3 = col_character(),
+                TCLUT = col_character(),
+                CCL = col_double())
+
+dat.1 <- read_csv(file = "data/juve_Cm_v1.csv", col_types = col.def)
+
+dat.1 %>% mutate(PTAG = as.factor(PTAG),
+                 TAGST = as.factor(TAGST),
+                 SP = as.factor(SP),
+                 SEX = as.factor(SEX),
+                 AGECL = as.factor(AGECL),
+                 LOCAL = as.factor(LOCAL),
+                 HABIT = as.factor(HABIT)) %>%
+  transmute(ID = paste(PTAG, TAG, sep = "-"),
+            detect = 1,
+            TAGST = TAGST,
+            SEX = SEX,
+            DATE = CDATE,
+            LOCAL = LOCAL,
+            HABIT = HABIT,
+            YEAR = YEAR,
+            CCL = CCL)-> dat.1
+```
+
+Set up data for analysis.  Captures within each season are condensed to one column.  Also, CCL should be extracted for the first capture. 
+
+```{r}
+CJS.data <- dat2CJS(dat.1, save.file = TRUE)
+CJS.data$data %>% rownames_to_column(var = "ID") -> data.CJS
+
+CCL.data <- dat2CCL(dat.1, save.file = TRUE)
+
+data.CJS %>% left_join(CCL.data$data, by = "ID") -> CJS.CCL.data
+
+```
+
+Then get ready for CJS anlaysis
+
+```{r}
+# capture history
+CH <- as.matrix(CJS.CCL.data[, c("1988", "1997", "1999", "2004", "2005",
+                                 "2006", "2007", "2008", "2014", "2015",
+                                 "2016", "2017", "2018")])
+nInd <- nrow(CH)
+
+CCL_min <- as.matrix(CJS.CCL.data[,"CCL_min"])
+CCL_max <- as.matrix(CJS.CCL.data[,"CCL_max"])
+CCL_mean <- as.matrix(CJS.CCL.data[,"CCL_mean"])
+
+# find the first capture date
+get.first <- function(x) min(which(x != 0))
+f <- apply(CH, 1, get.first)
+
+# fill in the CCL for missing values - Use mean of all
+CCL_min[is.na(CCL_min)] <- mean(CCL_mean, na.rm = T)
+CCL_min[is.infinite(CCL_min)] <- mean(CCL_mean, na.rm = T)
+
+## parameters to monitor - when this is changed, make sure to change
+## summary statistics indices at the end of this script. 
+parameters <- c("mean.p", "mean.phi", "beta")
+
+jags.data <- list(y = CH, f = f, nind = nInd, 
+                  n.occasions = dim(CH)[2],
+                  x = as.vector(CCL_min))
+
+inits <- lapply(replicate(MCMC.params$n.chains, 
+                          CH, 
+                          simplify = FALSE), 
+                initsFunction)
+
+jm <- jags(data = jags.data,
+           inits = inits,
+           parameters.to.save= parameters,
+           model.file = MCMC.params$model.file,
+           n.chains = MCMC.params$n.chains,
+           n.burnin = MCMC.params$n.burnin,
+           n.thin = MCMC.params$n.thin,
+           n.iter = MCMC.params$n.samples,
+           DIC = T, 
+           parallel=T)
+
+out.list <- list(jags.out = jm,
+                   jags.data = jags.data)
+
+ saveRDS(out.list, file = "RData/CJS_CCL.rds")
+
+```
+

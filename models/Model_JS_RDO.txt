@@ -22,7 +22,7 @@ model {
 	for (i in 1:M){
 		# first occasion
 		# state process
-    z[i, 1] ~ dbern(gamma[1])
+        z[i, 1] ~ dbern(gamma[1])
 		mu1[i] <- z[i, 1] * p[i, 1]
 		
 		# observation process

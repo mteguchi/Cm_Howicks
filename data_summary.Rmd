@@ -34,7 +34,7 @@ col.def <- cols(PTAG = col_character(),
                 TCLUT = col_character(),
                 CCL = col_double())
 
-dat.1 <- read_csv(file = "data/juve_Cm_v1.csv", col_types = col.def)
+dat.1 <- read_csv(file = "data/juve_Cm_v2_2019.csv", col_types = col.def)
 
 dat.1 %>% mutate(PTAG = as.factor(PTAG),
                  TAGST = as.factor(TAGST),
@@ -74,7 +74,7 @@ dat.01$'2010' <- 0
 dat.01$'2011' <- 0
 dat.01$'2012' <- 0
 dat.01$'2013' <- 0
-dat.01$'2019' <- 0
+#dat.01$'2019' <- 0
 
 dat.01.1 <- dat.01[, 2:ncol(dat.01)]
 dat.01.1[dat.01.1 > 1] <- 1
@@ -87,7 +87,7 @@ dat.01 <- cbind(dat.01$ID,
 dat.01 <- dat.01[, c("ID", setdiff(names(dat.01), "ID"))]
 
 if (save.file)
-  write.csv(dat.01, file = "data/juve_Cm_01_v1.csv", 
+  write.csv(dat.01, file = "data/juve_Cm_01_v3_2019.csv", 
             row.names = F,
             quote = F)
 

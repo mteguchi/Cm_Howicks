@@ -1,0 +1,157 @@
+---
+title: "Abundacne of juvenile green turtles near Ingram Island"
+author: "Tomo Eguchi"
+date: "8/17/2019"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+rm(list=ls())
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(reshape)
+library(bayesplot)
+library(ggridges)
+
+
+source("Cm_Howicks_functions.R")
+save.fig <- T
+
+```
+
+## Introduction
+The Great Barrier Reef (GRB) hosts one of the largest green turtle populations in the world (Seminoff et al. 2017 - Status review report). In the recent years, however, the hatchling production at the largest green turtle rookery (Raine Island) has declined (REFs). Further, feminization of younger turtles has been reported at a foraging ground (Howick group of islands) in the northern GBR (nGBR), which likely resulted from the warming climate and ocean (Jensen et al. 2018). At the same foraging ground, recent capture efforts suggested the decline of green turtles in the area, especially the juvenile size class (I. Bell personal observation - or REFs).
+
+To quantify the perceived decline of juveniles at the foraging ground, we analyzed the capture-recapture records of juvenile green turtles from the 1997 to 2019 seasons. 
+
+## Methods
+Turtles were captured using the rodeo method (REF). Sea and weather conditions affected annual sampling effort. To sample a wide range of size classes, turtles were caught at various locations because there were segregations of size classes at the foraging ground. 
+
+Capture and recapture records of juvenile green turtles and capture-mark-recapture (CMR) statistcal models were used to estimate capture probabilities, survival rates, and abundance of juvenles at the foraging area.  
+
+Capture records were pooled within each sampling season so that only one capture was recorded witin a season regardless of the number of recaptures within each season. Because different habitats were used by distinct size classes at the foraging ground, we used the only survey dates that sampled the juvenile foraging habitat in this analysis, where survey days with < 10 juveniles captures were excluded (Table 1). 
+
+We fit a Bayesian modification of the Cormack-Jolly-Seber models (Kery and Schaub 2011) to these data for estimating the parameters of the models (capture probabilities, survival, and annual abundance as derived parameter), where the abundance was estimated via the Horvitz-Thompson estimator using the number of juveniles caught per season and the estimated capture probabilities. We considered two models; one with a covariate affecting capture probabilities and another with an additional covariate affecting survival rates.  For both models, we used the number of sampling days with > 9 juvenile captures as the covariate that affected the capture probabilities, where the logit tranformation of capture probabilities was modeled as a linear function of the number of sampling days. For the second model, we used the minimum recorded length (curved carapace length; CCL) of each individual as the covariate affecting the survival.  We centered the two covariates.  For those individuals without CCL measurements, we used the average of all recorded juvenile CCLs.  We used the deviance information criteria (DIC; Gelman et al. 2013) to compare the two models.  The inference on the parameters was made from the best model. 
+
+The model was fit with jags (v. 4.3.0, Plummer 2017) via jagsUI (Kellner 2019) in the R statistical environment (v. 3.6.1, R Core Team 2019).  
+
+## Results
+```{r load_results, echo=FALSE, cache=TRUE, include=FALSE}
+tmp <- readRDS(file = "RData/CJS_pt_cov_days_v4.rds")
+jm.2 <- tmp$jags.out
+
+years.unique <- names(tmp$jags.data$n)
+
+Ns.stats <- data.frame(Year = names(tmp$jags.data$n),
+                       N.median = jm.2$q50$N,
+                       N.low = jm.2$q2.5$N,
+                       N.high = jm.2$q97.5$N)
+
+Ns.df <- extract.posterior("N", jm.2$samples)
+colnames(Ns.df) <- years.unique
+
+Ns.df.2 <- melt(Ns.df, 
+                value.name = "N", 
+                variable.name = "Year")
+
+colnames(Ns.df.2) <- c("Year", "N")
+
+ns.df <- data.frame(Year = names(tmp$jags.data$n),
+                    n = tmp$jags.data$n)
+
+```
+
+Both models converged according to the Rhat statistic (Rhat < 1.1, Gelman et al. 2013).  The model with a constant survival rate among all individuals was considered better according to the DIC values (Table 2). The estimated survival rate was ```r signif(jm.2$q50$mean.phi, 3)``` (median), and its 95% posterior interval (PI) = [```r signif(jm.2$q2.5$mean.phi, 3)```, ```r signif(jm.2$q97.5$mean.phi, 3)```] (Figure 1).  
+
+```{r phi_plot, echo=FALSE, cache=TRUE, include=TRUE, warning = FALSE, fig.align="center", fig.cap="Figure 1. The posterior distribution of annual survival proability for juvenile green turtles captured and recaptured at Howick group of islands"}
+
+mean.phi.plot <- mcmc_dens(jm.2$samples, c("mean.phi")) + 
+  xlab("Annual survival probability") + 
+  ylab("Density") + 
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12))
+
+if (save.fig) ggsave(filename = "figures/mean.phi.png",
+                     plot = mean.phi.plot, device = "png",
+                     dpi = 600)
+mean.phi.plot
+```
+
+Estimated median abundance of juveniles ranged from ```r signif(min(Ns.stats$N.median), 4)``` in ```r Ns.stats$Year[Ns.stats$N.median == min(Ns.stats$N.median)]``` (95% PI = [```r signif(Ns.stats[which(Ns.stats$N.median == min(Ns.stats$N.median)), "N.low"], 4)```, ```r signif(Ns.stats[which(Ns.stats$N.median == min(Ns.stats$N.median)), "N.high"], 4)```]) to ```r signif(max(Ns.stats$N.median), 4)``` in ```r Ns.stats$Year[Ns.stats$N.median == max(Ns.stats$N.median)]``` (95% PI = [```r signif(Ns.stats[which(Ns.stats$N.median == max(Ns.stats$N.median)), "N.low"], 4)```, ```r signif(Ns.stats[which(Ns.stats$N.median == max(Ns.stats$N.median)), "N.high"], 4)```]) (Figure 2).   
+
+```{r plot_N, echo=FALSE, include=TRUE, warning=FALSE, message=FALSE, fig.align="center",  fig.cap="Figure 2. Estimated abundance of juvenile green turtles near Ingram Island. Filled circles indicate medians and the error bars are 95% posterior intervals. The numbers of individuals from each season are shown at the top. "}
+Ns.plot <- ggplot(data = Ns.stats) +
+  geom_point(aes(x = Year, y = N.median),
+             size = 3) +
+  geom_errorbar(aes(x = Year, ymin = N.low, ymax = N.high)) +
+  xlab("") + ylab("Juvenile abundance") + 
+  theme(axis.text = element_text(size = 12, 
+                                 family = "TT Times New Roman"),
+        axis.title = element_text(size = 12,
+                                  family = "TT Times New Roman"))
+  #geom_text(data = ns.df,
+  #          aes(x = Year, y = 2000, label = n))
+
+if (save.fig) ggsave(filename = "figures/Ns.png",
+                     plot = Ns.plot, device = "png",
+                     dpi = 600)
+
+Ns.plot
+```
+
+
+```{r declineSince2016, echo=FALSE, include=FALSE}
+NsSince2016 <- select(Ns.df, "2016", "2017", "2018", "2019")
+lambda.1 <- (NsSince2016$`2017`)/NsSince2016$`2016`
+lambda.2 <- (NsSince2016$`2018`)/NsSince2016$`2017`
+lambda.3 <- (NsSince2016$`2019`)/NsSince2016$`2018`
+
+lambda.all <- (NsSince2016$`2019`)/NsSince2016$`2016`
+
+lambda.df <- rbind(data.frame(Year = "2016-2017", lambda = lambda.1),
+                   data.frame(Year = "2017-2018", lambda = lambda.2),
+                   data.frame(Year = "2018-2019", lambda = lambda.3),
+                   data.frame(Year = "2016-2019", lambda = lambda.all))
+
+```
+
+The annual rate of change in abundance (lambda = N(t)/N(t-1)) was ```r signif(median(lambda.1), 2)``` (95% PI = ```r signif(quantile(lambda.1, 0.025), 2)``` - ```r signif(quantile(lambda.1, 0.975), 2)```, p(lambda < 1.0) = ```r signif(length(lambda.1[lambda.1 < 1.0]) / length(lambda.1), 2)```) from 2016 to 2017, ```r signif(median(lambda.2), 2)``` (95% PI = ```r signif(quantile(lambda.2, 0.025), 2)``` - ```r signif(quantile(lambda.2, 0.975), 2)```, p(lambda < 1.0) = ```r signif(length(lambda.2[lambda.2 < 1.0]) / length(lambda.2), 2)```) from 2017 to 2018, and ```r signif(median(lambda.3), 2)``` (95% PI = ```r signif(quantile(lambda.3, 0.025), 2)``` - ```r signif(quantile(lambda.3, 0.975), 2)```, p(lambda < 1.0) = ```r signif(length(lambda.3[lambda.3 < 1.0]) / length(lambda.3), 2)```) from 2018 to 2019. From 2016 to 2019, the total decline was ```r signif(median(lambda.all), 2)``` (95% PI = ```r signif(quantile(lambda.all, 0.025), 2)``` - ```r signif(quantile(lambda.all, 0.975), 2)```, p(lambda < 1.0) = ```r signif(length(lambda.all[lambda.all < 1.0]) / length(lambda.all), 2)```) (Figure 3).
+
+```{r plot_lambda, echo=FALSE, include=TRUE, warning=FALSE, message=FALSE, fig.align="center",  fig.cap="Figure 3. The change in estimated abundance of juvenile green turtles near Ingram Island since 2016. Lambda is N(t)/N(t-1)."}
+p.lambda <- ggplot(data = lambda.df) +
+   geom_density_ridges2(aes(y = Year, x = lambda),
+                        fill = "seagreen3") +
+  xlab("lambda and N(2019)/N(2016)") +
+  ylab("") +
+  xlim(c(0.2, 1.75))+ 
+  theme(axis.text = element_text(size = 12, 
+                                 family = "TT Times New Roman"),
+        axis.title = element_text(size = 12,
+                                  family = "TT Times New Roman"))
+
+if (save.fig) ggsave(filename = "figures/lambdas.png",
+                     plot = p.lambda, device = "png",
+                     dpi = 600)
+
+p.lambda
+```
+
+
+## Discussion
+The low estimates for 1997 and 1998 could have been caused by low sampling effort for juveniles in those years (one sampling day per season that exceeded 9 captures). During the 2014 season, the juvenile sampling effort was concentrated in one area within the juvenile habitat, which likely contributed to the low and precise estimate of abundance for the season.  
+
+## Literature cited
+Gelman A, Carlin JB, Stern HS, Dunson DB, Vehtari A, Rubin DB. 2013 Bayesian Data Analysis, 3rd edition. Chapman and Hall/CRC, 675 pp, 
+
+Jensen MP, Allen CD, Eguchi T, Bell IP, LaCasella EL, Hilton WA, Hof CAM, Dutton PH. 2018. Environmental warming and feminization of one of the largest sea turtle populations in the world. Current Biology 28:154-159.
+
+Kellner K 2019. jagsUI: A Wrapper Around 'rjags' to Streamline 'JAGS' Analyses. R package version 1.5.1. https://CRAN.R-project.org/package=jagsUI
+
+Kery M, Schaub M. 2012. Bayesian population analysis using WinBUGS: A hierarchical perspective. Chapter 7 - Estimation of Survival from Capture–Recapture Data Using the Cormack–Jolly–Seber Model, Pages 171-239.
+
+Plummmer M. 2017. JAGS. http://mcmc-jags.sourceforge.net/
+
+R Core Team (2019). R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna, Austria. URL https://www.R-project.org/.
+

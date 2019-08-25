@@ -1,0 +1,544 @@
+---
+title: "Estimating juvenile survival rates of green turtles at Howicks group of islands"
+output: html_notebook
+---
+
+This document describes modeling of juvenile survival rates and capture probabilities through Cormack-Jolly-Seber model and the Bayesian approach. The model is from Kery and Schaub. It uses CCL as a covariate. 
+
+```{r}
+rm(list=ls())
+library(jagsUI)
+library(tidyverse)
+library(lubridate)
+library(reshape)
+library(bayesplot)
+library(ggridges)
+
+
+source("Cm_Howicks_functions.R")
+
+# initial values - when removing z, no input
+initsFunction <- function(ch){
+  phi <- rbeta(1,2,2)
+  #p <- rbeta(1,2,2)
+  z <- known.state.cjs(ch)
+  b <- rnorm(1, 0, 10)
+  A <- list(mean.phi = phi, z = z, beta = b)
+  return(A)
+}
+
+MCMC.params <- list(model.file = "models/Model_CJS_pt_cov_days.txt",
+                       n.chains = 3,
+                       n.samples = 50000,
+                       n.burnin = 30000,
+                       n.thin = 5)
+
+```
+
+Get data - from Ian Bell.
+
+```{r}
+dat.1 <- get.data("data/juve_Cm_v3_2019.csv")
+```
+
+Set up data for analysis.  Captures within each season are condensed to one column.  Also, CCL should be extracted for the first capture. But add the number of capture days per season as a covariate and make a linear model.
+
+```{r}
+CJS.data <- dat2CJS(dat.1, save.file = FALSE)
+CJS.data$data %>% rownames_to_column(var = "ID") -> data.CJS
+
+# find unique dates within each season
+uniq.yrs <- sort(unique(dat.1$YEAR))
+n.dates <- vector(mode = "numeric", length = length(uniq.yrs))
+k <- 1
+for (k in 1:length(n.dates)){
+  tmp <- filter(dat.1, YEAR == uniq.yrs[k])
+  n.dates[k] <- length(unique(tmp$DATE))
+  
+}
+
+```
+
+Then get ready for CJS anlaysis
+
+```{r}
+# capture history
+# CH <- as.matrix(CJS.data$data)
+# 
+# nInd <- nrow(CJS.data$data)
+# 
+# ns <- colSums(CJS.data$data)
+# 
+# # find the first capture date
+# f <- apply(CH, 1, get.first)
+# 
+# ## parameters to monitor - when this is changed, make sure to change
+# ## summary statistics indices at the end of this script. 
+# parameters <- c("p", "mean.phi", "N", 
+#                 "beta0", "beta1", "tau.p")
+# 
+# jags.data <- list(y = CH, f = f, nind = nInd, 
+#                   n.occasions = dim(CH)[2],
+#                   n = ns, T = ncol(CJS.data$data),
+#                   x = (n.dates - mean(n.dates)),
+#                   dt = uniq.yrs[2:length(uniq.yrs)] - 
+#                     uniq.yrs[1:(length(uniq.yrs)-1)])
+# 
+# inits <- lapply(replicate(MCMC.params$n.chains, 
+#                           CH, 
+#                           simplify = FALSE), 
+#                 initsFunction)
+# 
+# if (!file.exists("RData/CJS_pt_cov_days.rds")){
+#   jm.1 <- jags(data = jags.data,
+#              inits = inits,
+#              parameters.to.save= parameters,
+#              model.file = MCMC.params$model.file,
+#              n.chains = MCMC.params$n.chains,
+#              n.burnin = MCMC.params$n.burnin,
+#              n.thin = MCMC.params$n.thin,
+#              n.iter = MCMC.params$n.samples,
+#              DIC = T, 
+#              parallel=T)
+#   
+#   out.list <- list(jags.out = jm.1,
+#                    jags.data = jags.data)
+#   
+#   saveRDS(out.list, file = "RData/CJS_pt_cov_days.rds")
+#   
+# } else {
+#   tmp <- readRDS(file = "RData/CJS_pt_cov_days.rds")
+#   jm.1 <- tmp$jags.out
+# }
+
+```
+
+```{r}
+# look at trace and posteriors
+# mcmc_trace(jm.1$samples, c("mean.phi"))
+# mcmc_dens(jm.1$samples, c("mean.phi"))
+```
+
+
+```{r}
+# look at trace and posteriors
+# mcmc_trace(jm.1$samples, c("beta0", "beta1"))
+# mcmc_dens(jm.1$samples, c("beta0", "beta1"))
+
+```
+
+
+```{r}
+# Ns.df <- extract.posterior("N", jm.1$samples)
+# colnames(Ns.df) <- sort(unique(dat.1$YEAR))
+# 
+# Ns.df.2 <- melt(Ns.df, 
+#                 value.name = "N", 
+#                 variable.name = "Year")
+# 
+# colnames(Ns.df.2) <- c("Year", "N")
+# 
+# ns.df <- data.frame(Year = names(ns),
+#                     n = ns)
+# 
+# ggplot(data = Ns.df.2) + 
+#   geom_density_ridges2(aes(y = Year, x = N),
+#                        fill = "red") + 
+#   geom_text(data = ns.df,
+#             aes(x = 2000, y = Year, 
+#                 label = paste("n = ", ns)),
+#             nudge_y = 0.5) + 
+  # xlim(c(0, 2500))
+```
+
+Will the results get better when we remove dates with less than 10 captures? In the following analysi, I kept only sampling dates with at least 10 juveniles.  
+
+```{r}
+# need to count the number of turtles caught every sampling day and remove columns with
+# less than 10 turtles
+tmp <- dat2data01(dat.1)
+years.all.df <- data.frame(table(year(colnames(tmp$data)))) %>%
+  transmute(Year = Var1,
+            All = Freq)
+
+n.caps <- colSums(tmp$data)
+data.include <- tmp$data[, n.caps > 9]
+data.include <- data.include[rowSums(data.include)>0, ]
+
+data.exclude <- tmp$data[, n.caps < 10]
+data.exclude <- data.exclude[rowSums(data.exclude) > 0, ]
+
+dates.include <- colnames(data.include)
+years.include <- year(dates.include)
+years.include.df <- data.frame(table(years.include)) %>%
+  transmute(Year = years.include,
+            Include = Freq)
+
+dates.exclude <- colnames(data.exclude)
+years.exclude <- year(dates.exclude)
+
+years.exclude.df <- data.frame(table(years.exclude)) %>%
+  transmute(Year = years.exclude,
+            Exclude = Freq)
+
+years.unique <- sort(unique(years.include))
+n.dates <- table(years.include)
+
+new.data <- matrix(nrow = nrow(data.include), 
+                   ncol = length(years.unique))
+
+y <- 1
+for (y in 1:length(years.unique)){
+  
+  new.data[, y] <- rowSums(as.matrix(data.include[, years.include == years.unique[y]]))
+  
+}
+
+new.data[new.data > 1] <- 1
+
+new.data.df <- data.frame(new.data)
+row.names(new.data.df) <- row.names(data.include)
+colnames(new.data.df) <- years.unique
+
+cumulative.sum <- t(apply(new.data.df, MARGIN = 1, FUN = cumsum))
+cumulative.sum[new.data.df == 0] <- 0
+
+n.recaps <- apply(cumulative.sum, 
+                  MARGIN = 2, 
+                  FUN = function(x) sum(x > 1))
+
+data.frame(n.recaps) %>% rownames_to_column() %>%  
+  transmute(Year = rowname, 
+            n.recaps = n.recaps) -> n.recaps.df
+
+n.caps <- colSums(new.data.df)
+data.frame(n.caps) %>% rownames_to_column() %>%
+  transmute(Year = rowname,
+            n.caps = n.caps) -> n.caps.df
+
+#### for excluded dates:
+years.unique.ex <- sort(unique(years.exclude))
+n.dates.ex <- table(years.exclude)
+
+new.data.ex <- matrix(nrow = nrow(data.exclude), 
+                      ncol = length(years.unique.ex))
+
+y <- 1
+for (y in 1:length(years.unique.ex)){
+  
+  new.data.ex[, y] <- rowSums(as.matrix(data.exclude[, years.exclude == years.unique.ex[y]]))
+  
+}
+
+new.data.ex[new.data.ex > 1] <- 1
+
+new.data.exclude.df <- data.frame(new.data.ex)
+row.names(new.data.exclude.df) <- row.names(data.exclude)
+colnames(new.data.exclude.df) <- years.unique.ex
+ns.exclude <- colSums(new.data.exclude.df)
+
+years.all.df %>% left_join(years.include.df, by = "Year") %>%
+  left_join(years.exclude.df, by = "Year") %>%
+  left_join(n.caps.df, by = "Year") %>%
+  left_join(n.recaps.df, by = "Year") -> capture.df 
+
+
+```
+
+
+```{r}
+
+CH <- as.matrix(new.data.df)
+
+nInd <- nrow(new.data.df)
+
+ns <- colSums(new.data.df)
+
+# find the first capture date
+f <- apply(CH, 1, get.first)
+
+## parameters to monitor - when this is changed, make sure to change
+## summary statistics indices at the end of this script. 
+parameters <- c("p", "mean.phi", "N", 
+                "beta0", "beta1", "tau.p")
+
+jags.data <- list(y = CH, f = f, nind = nInd, 
+                  n.occasions = dim(CH)[2],
+                  n = ns, T = ncol(new.data.df),
+                  x = n.dates - mean(n.dates),
+                  dt = years.unique[2:length(years.unique)] - 
+                    years.unique[1:(length(years.unique)-1)])
+
+inits <- lapply(replicate(MCMC.params$n.chains, 
+                          CH, 
+                          simplify = FALSE), 
+                initsFunction)
+
+if (!file.exists("RData/CJS_pt_cov_days_v4.rds")){
+  jm.2 <- jags(data = jags.data,
+             inits = inits,
+             parameters.to.save= parameters,
+             model.file = MCMC.params$model.file,
+             n.chains = MCMC.params$n.chains,
+             n.burnin = MCMC.params$n.burnin,
+             n.thin = MCMC.params$n.thin,
+             n.iter = MCMC.params$n.samples,
+             DIC = T, 
+             parallel=T)
+  
+  out.list <- list(jags.out = jm.2,
+                   jags.data = jags.data)
+  
+  saveRDS(out.list, file = "RData/CJS_pt_cov_days_v4.rds")
+  
+} else {
+  tmp <- readRDS(file = "RData/CJS_pt_cov_days_v4.rds")
+  jm.2 <- tmp$jags.out
+}
+
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.2$samples, c("mean.phi"))
+mcmc_dens(jm.2$samples, c("mean.phi"))
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.2$samples, c("beta0", "beta1"))
+mcmc_dens(jm.2$samples, c("beta0", "beta1"))
+
+```
+
+
+
+```{r}
+Ns.df <- extract.posterior("N", jm.2$samples)
+colnames(Ns.df) <- years.unique
+
+Ns.df.2 <- melt(Ns.df, 
+                value.name = "N", 
+                variable.name = "Year")
+
+colnames(Ns.df.2) <- c("Year", "N")
+
+ns.df <- data.frame(Year = names(ns),
+                    n = ns)
+
+ggplot(data = Ns.df.2) + 
+  geom_density_ridges2(aes(y = Year, x = N),
+                       fill = "red") + 
+    geom_text(data = ns.df,
+            aes(x = 2000, y = Year, 
+                label = paste("n = ", ns)),
+            nudge_y = 0.5) + 
+
+  xlim(c(0, 2500))
+```
+
+Uncertainties decreased a lot by removing those dates with small sample sizes. 
+
+Next, I added CCL as a covariate for survival. For capture probabilities, I only kept sampling days with > 9 individuals. 
+
+
+```{r}
+datCCL <- dat2CCL(dat.1, save.file = TRUE)
+
+new.data.df %>% rownames_to_column( var = "ID") %>%
+  left_join(datCCL$data, by = "ID") -> new.data.df.2 
+```
+
+```{r}
+new.data.df.2 %>% select("1997", "1998", "2004", "2005", "2006", "2007", "2008",
+                         "2014", "2015", "2016", "2017", "2018", "2019") %>%
+  as.matrix -> CH
+
+nInd <- nrow(new.data.df.2)
+
+ns <- colSums(CH)
+
+# find the first capture date
+f <- apply(CH, 1, get.first)
+
+## parameters to monitor - when this is changed, make sure to change
+## summary statistics indices at the end of this script. 
+parameters <- c("p", "mean.phi", "N", 
+                "beta0.p", "beta1.p", "tau.p",
+                "beta1.phi", "tau.phi")
+
+jags.data <- list(y = CH, f = f, nind = nInd, 
+                  n.occasions = dim(CH)[2],
+                  n = ns, T = ncol(new.data.df),
+                  x.p = n.dates - mean(n.dates),
+                  x.phi = new.data.df.2$CCL_min - mean(new.data.df.2$CCL_min),
+                  dt = years.unique[2:length(years.unique)] - 
+                    years.unique[1:(length(years.unique)-1)])
+
+inits <- lapply(replicate(MCMC.params$n.chains, 
+                          CH, 
+                          simplify = FALSE), 
+                initsFunction)
+
+MCMC.params$model.file <- "models/Model_CJS_pt_cov_days_phi_firstCCL.txt"
+
+if (!file.exists("RData/CJS_pt_cov_days_phi_firstCCL_v4.rds")){
+  jm.3 <- jags(data = jags.data,
+             inits = inits,
+             parameters.to.save= parameters,
+             model.file = MCMC.params$model.file,
+             n.chains = MCMC.params$n.chains,
+             n.burnin = MCMC.params$n.burnin,
+             n.thin = MCMC.params$n.thin,
+             n.iter = MCMC.params$n.samples,
+             DIC = T, 
+             parallel=T)
+  
+  out.list <- list(jags.out = jm.3,
+                   jags.data = jags.data)
+  
+  saveRDS(out.list, file = "RData/CJS_pt_cov_days_phi_firstCCL_v4.rds")
+  
+} else {
+  tmp <- readRDS(file = "RData/CJS_pt_cov_days_phi_firstCCL_v4.rds")
+  jm.3 <- tmp$jags.out
+}
+
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.3$samples, c("mean.phi"))
+mcmc_dens(jm.3$samples, c("mean.phi"))
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.3$samples, c("beta0.p", "beta1.p"))
+mcmc_dens(jm.3$samples, c("beta0.p", "beta1.p"))
+
+```
+
+
+
+```{r}
+Ns.df <- extract.posterior("N", jm.3$samples)
+colnames(Ns.df) <- years.unique
+
+Ns.df.2 <- melt(Ns.df, 
+                value.name = "N", 
+                variable.name = "Year")
+
+colnames(Ns.df.2) <- c("Year", "N")
+
+ns.df <- data.frame(Year = names(ns),
+                    n = ns)
+
+ggplot() + 
+  geom_density_ridges2(data = Ns.df.2,
+                       aes(y = Year, x = N),
+                       fill = "red") + 
+  geom_text(data = ns.df,
+            aes(x = 2000, y = Year, 
+                label = paste("n = ", ns)),
+            nudge_y = 0.5) + 
+  xlim(c(0, 2500))
+```
+
+p dot model at last - I know this isn't going to be good... and it wasn't. Instead, I look at the two survival probabilities model; one for 1997 to 2015 and another for after 2015. 
+
+```{r}
+new.data.df.2 %>% select("1997", "1998", "2004", "2005", "2006", "2007", "2008",
+"2014", "2015", "2016", "2017", "2018", "2019") %>%
+  as.matrix() -> CH
+
+nInd <- nrow(new.data.df.2)
+
+ns <- colSums(CH)
+
+# find the first capture date
+f <- apply(CH, 1, get.first)
+
+## parameters to monitor - when this is changed, make sure to change
+## summary statistics indices at the end of this script.
+parameters <- c("mean.p", "mean.phi1", "mean.phi2", "N",
+                 "beta0", "beta1", "tau.p")
+
+jags.data <- list(y = CH, f = f, nind = nInd, 
+                  n.occasions = dim(CH)[2],
+                  n = ns, T = ncol(new.data.df),
+                  x = n.dates - mean(n.dates),
+                  dt = years.unique[2:length(years.unique)] - 
+                    years.unique[1:(length(years.unique)-1)],
+                  Tcutoff = 9)
+
+inits <- lapply(replicate(MCMC.params$n.chains, 
+                          CH, 
+                          simplify = FALSE), 
+                initsFunction)
+
+MCMC.params$model.file <- "models/Model_CJS_pt_cov_days_2phis.txt"
+
+
+if (!file.exists("RData/CJS_pt_cov_days_2phis.rds")){
+  jm.4 <- jags(data = jags.data,
+             inits = inits,
+             parameters.to.save= parameters,
+             model.file = MCMC.params$model.file,
+             n.chains = MCMC.params$n.chains,
+             n.burnin = 5000, #MCMC.params$n.burnin,
+             n.thin = 5, #MCMC.params$n.thin,
+             n.iter = 10000, #MCMC.params$n.samples,
+             DIC = T,
+             parallel=T)
+
+  out.list <- list(jags.out = jm.4,
+                   jags.data = jags.data)
+
+  saveRDS(out.list, file = "RData/CJS_pt_cov_days_2phis.rds")
+
+} else {
+  tmp <- readRDS(file = "RData/CJS_pt_cov_days_2phis.rds")
+  jm.4 <- tmp$jags.out
+}
+
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.4$samples, c("mean.phi1", "mean.phi2"))
+mcmc_dens(jm.4$samples, c("mean.phi1", "mean.phi2"))
+```
+
+
+```{r}
+Ns.df <- extract.posterior("N", jm.4$samples)
+colnames(Ns.df) <- years.unique
+
+Ns.df.2 <- melt(Ns.df,
+                value.name = "N",
+                variable.name = "Year")
+
+colnames(Ns.df.2) <- c("Year", "N")
+
+ns.df <- data.frame(Year = names(ns),
+                    n = ns)
+
+ggplot() +
+  geom_density_ridges2(data = Ns.df.2,
+                       aes(y = Year, x = N),
+                       fill = "red") +
+  geom_text(data = ns.df,
+            aes(x = 2000, y = Year,
+                label = paste("n = ", ns)),
+            nudge_y = 0.5) +
+   xlim(c(0, 2500))
+```
+
+As expected, this one doesn't work well.  
+

@@ -1,0 +1,468 @@
+---
+title: "Annual abundance estimates for juvenile green turtles at Ingram Island"
+output: html_notebook
+---
+
+This document describes esimating abundance of juvenile green turtles at Ingram Island from capture-recapture data.  
+
+Set up some constants and load libraries and define functions. 
+
+```{r}
+rm(list=ls())
+library(jagsUI)
+library(tidyverse)
+library(lubridate)
+library(reshape)
+library(bayesplot)
+
+source("Cm_Howicks_functions.R")
+
+SAVE <- TRUE
+
+MCMC.params.M0 <- list(model.file = "models/Model_M0.txt",
+                       n.chains = 3,
+                       n.samples = 50000,
+                       n.burnin = 30000,
+                       n.thin = 5)
+
+MCMC.params.Mt <- list(model.file = "models/Model_Mt.txt",
+                       n.chains = 3,
+                       n.samples = 50000,
+                       n.burnin = 30000,
+                       n.thin = 5)
+
+```
+
+
+First, load capture history data from Ian Bell. 
+
+```{r}
+col.def <- cols(PTAG = col_character(),
+                TAG = col_integer(),
+                TAGST = col_character(),
+                SP = col_character(),
+                SEX = col_character(),
+                AGECL = col_character(),
+                CDATE = col_date(format = "%m/%d/%Y"),
+                LOCAL = col_character(),
+                YEAR = col_integer(),
+                HABIT = col_character(),
+                PRIAC = col_character(),
+                SECAC = col_character(),
+                TERAC = col_character(),
+                TERAC2 = col_character(),
+                EXPER1 = col_character(),
+                EXPER2 = col_character(),
+                EXPER3 = col_character(),
+                TCLUT = col_character(),
+                CCL = col_double())
+
+dat.1 <- read_csv(file = "data/juve_Cm_v3_2019.csv", 
+                  col_types = col.def)
+
+dat.1 %>% mutate(PTAG = as.factor(PTAG),
+                 TAGST = as.factor(TAGST),
+                 SP = as.factor(SP),
+                 SEX = as.factor(SEX),
+                 AGECL = as.factor(AGECL),
+                 LOCAL = as.factor(LOCAL),
+                 HABIT = as.factor(HABIT)) %>%
+  transmute(ID = paste(PTAG, TAG, sep = "-"),
+            detect = 1,
+            TAGST = TAGST,
+            SEX = SEX,
+            DATE = CDATE,
+            LOCAL = LOCAL,
+            HABIT = HABIT,
+            YEAR = year(CDATE),
+            CCL = CCL)-> dat.1
+
+#summary(dat.1)
+```
+
+Data are from 1997 to 2018. Just to get things started, I'll start from 2014 when we had a lot of recaptures. 
+
+```{r}
+# filter just one year
+year <- 2014
+out <- dat2dat01(dat.1, YEAR = year, save.file = TRUE)
+
+if (SAVE == TRUE) saveFname_M0 <- paste("RData/M0_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+if (SAVE == TRUE) saveFname_Mt <- paste("RData/Mt_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+data01 <- out$data[1:nrow(out$data), 
+                   2:ncol(out$data)]
+
+col.sums <- colSums(data01)
+data01 <- data01[, col.sums > 20]
+
+# remove rows with all zeros
+row.sums <- rowSums(data01)
+data01 <- data01[row.sums != 0,]
+
+if (!file.exists(saveFname_M0)){
+  
+  jm.M0 <- jags.M0(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.M0)
+
+  out.list.M0 <- list(jags.out = jm.M0,
+                      MCMC.params = MCMC.params.M0,
+                      model.file = MCMC.params.M0$model.file)
+  
+  if (SAVE == TRUE) {
+    saveRDS(out.list.M0, file = saveFname_M0)
+  }  
+}
+
+if (!file.exists(saveFname_Mt)){
+  
+  jm.Mt <- jags.Mt(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.Mt)
+  
+  
+  out.list.Mt <- list(jags.out = jm.Mt,
+                      MCMC.params = MCMC.params.Mt,
+                      model.file = MCMC.params.Mt$model.file)
+  
+  if (SAVE == TRUE) {
+    saveRDS(out.list.Mt, file = saveFname_Mt)
+  }  
+  
+}
+
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.M0$jags.out$samples, c("N", "p"))
+
+mcmc_dens(jm.M0$jags.out$samples, c("N", "p"))
+
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.Mt$jags.out$samples, 
+           c("N", "p[1]", "p[2]", "p[3]", "p[4]", "p[5]"))
+
+mcmc_dens(jm.Mt$jags.out$samples, 
+          c("N", "p[1]", "p[2]", "p[3]", "p[4]", "p[5]"))
+
+```
+
+```{r}
+# filter just one year
+year <- 2017
+out <- dat2dat01(dat.1, YEAR = year, save.file = TRUE)
+
+if (SAVE == TRUE) saveFname_M0 <- paste("RData/M0_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+if (SAVE == TRUE) saveFname_Mt <- paste("RData/Mt_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+data01 <- out$data[1:nrow(out$data), 
+                   2:ncol(out$data)]
+
+col.sums <- colSums(data01)
+data01 <- data01[, col.sums > 10]
+
+# remove rows with all zeros
+row.sums <- rowSums(data01)
+data01 <- data01[row.sums != 0,]
+
+if (!file.exists(saveFname_M0)){
+  
+  jm.M0 <- jags.M0(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.M0)
+  
+  out.list.M0 <- list(jags.out = jm.M0,
+                      MCMC.params = MCMC.params.M0,
+                      model.file = MCMC.params.M0$model.file)
+
+  if (SAVE == TRUE) {
+      saveRDS(out.list.M0, file = saveFname_M0)
+  }  
+}
+
+if (!file.exists(saveFname_Mt)){
+
+  jm.Mt <- jags.Mt(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.Mt)
+  
+  
+  out.list.Mt <- list(jags.out = jm.Mt,
+                   MCMC.params = MCMC.params.Mt,
+                   model.file = MCMC.params.Mt$model.file)
+
+  if (SAVE == TRUE) {
+      saveRDS(out.list.Mt, file = saveFname_Mt)
+  }  
+
+}
+
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.Mt$jags.out$samples, c("N", "p[1]", "p[2]", "p[3]"))
+
+mcmc_dens(jm.Mt$jags.out$samples, c("N", "p[1]", "p[2]", "p[3]"))
+
+```
+
+```{r}
+# filter just one year
+year <- 2018
+
+out <- dat2dat01(dat.1, year = year, save.file = TRUE)
+
+if (SAVE == TRUE) saveFname_M0 <- paste("RData/M0_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+if (SAVE == TRUE) saveFname_Mt <- paste("RData/Mt_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+data01 <- out$data[1:nrow(out$data), 
+                   2:ncol(out$data)]
+
+col.sums <- colSums(data01)
+data01 <- data01[, col.sums > 9]
+
+# remove rows with all zeros
+row.sums <- rowSums(data01)
+data01 <- data01[row.sums != 0,]
+
+if (!file.exists(saveFname_M0)){
+  
+  jm.M0 <- jags.M0(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.M0)
+  
+  out.list.M0 <- list(jags.out = jm.M0,
+                      MCMC.params = MCMC.params.M0,
+                      model.file = MCMC.params.M0$model.file)
+
+  if (SAVE == TRUE) {
+      saveRDS(out.list.M0, file = saveFname_M0)
+  }  
+}
+
+if (!file.exists(saveFname_Mt)){
+
+  jm.Mt <- jags.Mt(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.Mt)
+  
+  
+  out.list.Mt <- list(jags.out = jm.Mt,
+                   MCMC.params = MCMC.params.Mt,
+                   model.file = MCMC.params.Mt$model.file)
+
+  if (SAVE == TRUE) {
+      saveRDS(out.list.Mt, file = saveFname_Mt)
+  }  
+}
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.Mt$jags.out$samples, c("N", "p[1]", "p[2]", "p[3]", "p[4]", "p[5]"))
+
+mcmc_dens(jm.Mt$jags.out$samples, c("N", "p[1]", "p[2]", "p[3]", "p[4]", "p[5]"))
+
+
+```
+
+
+```{r}
+# filter just one year
+year <- 2004
+
+out <- dat2dat01(dat.1, YEAR = year, save.file = TRUE)
+
+if (SAVE == TRUE) saveFname_M0 <- paste("RData/M0_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+if (SAVE == TRUE) saveFname_Mt <- paste("RData/Mt_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+data01 <- out$data[1:nrow(out$data), 
+                   2:ncol(out$data)]
+
+col.sums <- colSums(data01)
+data01 <- data01[, col.sums > 10]
+
+# remove rows with all zeros
+row.sums <- rowSums(data01)
+data01 <- data01[row.sums != 0,]
+
+if (!file.exists(saveFname_M0)){
+  
+  jm.M0 <- jags.M0(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.M0)
+  
+  out.list.M0 <- list(jags.out = jm.M0,
+                      MCMC.params = MCMC.params.M0,
+                      model.file = MCMC.params.M0$model.file)
+
+  if (SAVE == TRUE) {
+      saveRDS(out.list.M0, file = saveFname_M0)
+  }  
+}
+
+if (!file.exists(saveFname_Mt)){
+
+  jm.Mt <- jags.Mt(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.Mt)
+  
+  
+  out.list.Mt <- list(jags.out = jm.Mt,
+                   MCMC.params = MCMC.params.Mt,
+                   model.file = MCMC.params.Mt$model.file)
+
+  if (SAVE == TRUE) {
+      saveRDS(out.list.Mt, file = saveFname_Mt)
+  }  
+}
+```
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.Mt$jags.out$samples, c("N", "p[1]", "p[2]"))
+
+mcmc_dens(jm.Mt$jags.out$samples, c("N", "p[1]", "p[2]"))
+
+
+```
+
+```{r}
+# filter just one year
+year <- 2016
+out <- dat2dat01(dat.1, YEAR = year, save.file = TRUE)
+
+if (SAVE == TRUE) saveFname_M0 <- paste("RData/M0_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+if (SAVE == TRUE) saveFname_Mt <- paste("RData/Mt_", year, "_",
+                                     Sys.Date(), ".rds", 
+                                     sep = "")
+
+data01 <- out$data[1:nrow(out$data), 
+                   2:ncol(out$data)]
+
+# there was one ID caught twice in a day QA-51289 on 2916-07-29 so
+# need to fix that 
+
+data01[data01 > 1] <- 1
+
+col.sums <- colSums(data01)
+data01 <- data01[, col.sums > 18]
+
+# remove rows with all zeros
+row.sums <- rowSums(data01)
+data01 <- data01[row.sums != 0,]
+
+if (!file.exists(saveFname_M0)){
+  
+  jm.M0 <- jags.M0(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.M0)
+
+  out.list.M0 <- list(jags.out = jm.M0,
+                      MCMC.params = MCMC.params.M0,
+                      model.file = MCMC.params.M0$model.file)
+  
+  if (SAVE == TRUE) {
+    saveRDS(out.list.M0, file = saveFname_M0)
+  }  
+}
+
+if (!file.exists(saveFname_Mt)){
+  
+  jm.Mt <- jags.Mt(data01, 
+                   nz = 500, 
+                   MCMC.params = MCMC.params.Mt)
+  
+  
+  out.list.Mt <- list(jags.out = jm.Mt,
+                      MCMC.params = MCMC.params.Mt,
+                      model.file = MCMC.params.Mt$model.file)
+  
+  if (SAVE == TRUE) {
+    saveRDS(out.list.Mt, file = saveFname_Mt)
+  }  
+  
+}
+
+```
+
+
+```{r}
+# look at trace and posteriors
+mcmc_trace(jm.Mt$jags.out$samples, c("N", "p[1]", "p[2]", "p[3]", "p[4]", "p[5]"))
+
+mcmc_dens(jm.Mt$jags.out$samples, c("N", "p[1]", "p[2]", "p[3]", "p[4]", "p[5]"))
+
+```
+
+For above years, N seems just way too high... this probably comes from the low numbers of recaptures.  Take a look at how many were recaptured each year. 
+
+```{r}
+# recaptures
+uniq.yrs <- sort(unique(dat.1$YEAR))
+  #1997, 1998, 1999 have so few data, skip:
+uniq.yrs <- uniq.yrs[uniq.yrs != 1997]
+uniq.yrs <- uniq.yrs[uniq.yrs != 1998]
+uniq.yrs <- uniq.yrs[uniq.yrs != 1999]
+
+# minimum column sum for each year needs to be done manually... Starts from 2004
+min.col.sum <- c(10, 10, 10, 10, 10, 10, 18, 19, 10, 10)
+
+n.captures.list <- list()
+
+k <- 13
+for (k in 1:length(uniq.yrs)){
+  out <- dat2dat01(dat.1, year = uniq.yrs[k], save.file = FALSE)
+  data01 <- out$data[1:nrow(out$data), 
+                     2:ncol(out$data)]
+  
+  # there was one ID caught twice in a day QA-51289 on 2916-07-29 so
+  # need to fix that 
+  data01[data01 > 1] <- 1
+  
+  col.sums <- colSums(data01)
+
+  data01 <- data01[, col.sums > min.col.sum[k]]
+# remove rows with all zeros
+  row.sums <- rowSums(data01)
+  data01 <- data01[row.sums != 0,]
+  
+  n.captures <- rowSums(data01)
+  n.captures.list[[k]] <- table(n.captures)
+  
+}
+```
+

@@ -12,8 +12,8 @@ SAVE <- TRUE
 model.file <- "models/Model_M0.txt"
 
 MCMC.n.chains <- 5
-MCMC.n.samples <- 50000
-MCMC.n.burnin <- 35000
+MCMC.n.samples <- 5000
+MCMC.n.burnin <- 2000
 MCMC.n.thin <- 5
 
 # first get data:
@@ -31,7 +31,7 @@ inits <- function() list(z = rep(1, nrow(yaug)), p = runif(1, 0, 1))
 jags.parameters <- c("N", "p", "Omega", "deviance")#, "log.likelihood")
 
 # Augment data by X
-nz <- 900
+nz <- 100
 
 yobs <- as.matrix(data01)
 yaug <- rbind(yobs, 

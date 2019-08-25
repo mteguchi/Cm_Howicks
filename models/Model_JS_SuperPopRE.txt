@@ -22,7 +22,7 @@ model {
 
   # In JAGS, I(L,U) is not allowed when the distribution is not fixed
   # Need to use T(L,U) instead. This however, is normalized to the 
-  # space {U, T}, which requires more computations rather than a simple
+  # space {L, U}, which requires more computations rather than a simple
   # truncation. Probably better to use an inverse-gamma distribution on
   # tau with a relatively informative space.
   for (i in 1:M){

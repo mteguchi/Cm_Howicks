@@ -1,0 +1,126 @@
+---
+title: "Data exploration for Cm Howicks 2019"
+output: html_notebook
+---
+
+This document summarizes the initial data exploration for capture data of green turtles at Howick's group of islands in the northern Great Barrier Reef. Data are from Ian Bell. 
+
+```{r}
+rm(list=ls())
+library(tidyverse)
+library(readr)
+library(reshape)
+#library(RMark)
+library(lubridate)
+library(ggridges)
+
+save.file <- F
+
+col.def <- cols(PTAG = col_character(),
+                TAG = col_integer(),
+                TAGST = col_character(),
+                SP = col_character(),
+                SEX = col_character(),
+                AGECL = col_character(),
+                CDATE = col_date(format = "%m/%d/%Y"),
+                LOCAL = col_character(),
+                YEAR = col_integer(),
+                HABIT = col_character(),
+                PRIAC = col_character(),
+                SECAC = col_character(),
+                TERAC = col_character(),
+                TERAC2 = col_character(),
+                EXPER1 = col_character(),
+                EXPER2 = col_character(),
+                EXPER3 = col_character(),
+                TCLUT = col_character(),
+                CCL = col_double())
+
+dat.1 <- read_csv(file = "data/juve_Cm_v2_2019.csv", col_types = col.def)
+
+dat.1 %>% mutate(PTAG = as.factor(PTAG),
+                 TAGST = as.factor(TAGST),
+                 SP = as.factor(SP),
+                 SEX = as.factor(SEX),
+                 AGECL = as.factor(AGECL),
+                 LOCAL = as.factor(LOCAL),
+                 HABIT = as.factor(HABIT)) %>%
+  transmute(ID = paste(PTAG, TAG, sep = "-"),
+            detect = 1,
+            TAGST = TAGST,
+            SEX = SEX,
+            DATE = CDATE,
+            LOCAL = LOCAL,
+            HABIT = HABIT,
+            YEAR = year(CDATE),
+            CCL = CCL)-> dat.1
+summary(dat.1)
+```
+
+Look at the change in size distributions
+
+```{r}
+# create density for each group:
+dat.2 <- na.omit(dat.1)
+dat.2 %>% mutate(Year = as.factor(YEAR)) -> dat.2
+
+ggplot(data = dat.2) +
+  #geom_point(aes(x = CCL, y = Density, color = Year))
+  geom_density_ridges2(aes(x = CCL, y = Year))
+
+# the following was not quite needed...
+# years <- sort(unique(dat.2$YEAR))
+# 
+# density.CCL <- list()
+# k <- 1
+# for ( k in 1:length(years)){
+#   tmp <- filter(dat.2, YEAR == years[k]) %>% select(YEAR, CCL)
+#   tmp.d <- density(tmp$CCL)
+#   density.CCL[[k]] <- cbind(years[k], tmp.d$x, tmp.d$y) 
+# }
+# 
+# density.CCL.df <- data.frame(do.call(rbind, density.CCL)) 
+# colnames(density.CCL.df) <- c("Year", "CCL", "Density")
+# density.CCL.df$Year <- as.factor(density.CCL.df$Year)
+
+```
+
+Summary stats by year
+
+```{r}
+dat.2 %>% group_by(Year) %>% summarise(mean = mean(CCL),
+                                       SE = sqrt(var(CCL))/sqrt(n()),
+                                       n = n())
+```
+
+Just for mangrove captures:
+```{r}
+dat.2.mangrove <- filter(dat.2, LOCAL == "HN")
+
+ggplot(data = dat.2.mangrove) +
+  #geom_point(aes(x = CCL, y = Density, color = Year))
+  geom_density_ridges2(aes(x = CCL, y = Year))
+
+```
+
+and the stats:
+
+```{r}
+dat.2.mangrove %>% group_by(Year) %>% summarise(mean = mean(CCL),
+                                       SE = sqrt(var(CCL))/sqrt(n()),
+                                       n = n())
+```
+
+
+
+Recaptures?
+```{r}
+ggplot(data = dat.2) +
+  geom_path(aes(x = YEAR, y = CCL, color = ID)) +
+  geom_point(aes(x = YEAR, y = CCL, color = ID)) +
+  
+  theme(legend.position = "none")
+
+```
+
+
