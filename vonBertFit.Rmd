@@ -1,0 +1,465 @@
+---
+title: "Juvenile grwoth at Howicks"
+output: html_notebook
+---
+
+I try to fit von Bertelanffy growth curve to observed growth data of juvenile greens at Howicks. 
+
+I have to convert the raw data files into an input file. The original model was designed for analyzing growths at Milman.  
+
+```{r}
+
+rm(list=ls())
+library(jagsUI)
+library(tidyverse)
+library(lubridate)
+library(reshape)
+library(bayesplot)
+library(ggridges)
+
+save.rds <- TRUE
+
+source("Cm_Howicks_functions.R")
+
+dat.1 <- get.data("data/juve_Cm_v3_2019.csv")
+
+```
+
+Find those that were captured more than once:
+
+```{r}
+n.cap.ID <- table(dat.1$ID)
+recap.ID <- data.frame(n.cap.ID[n.cap.ID > 1])
+colnames(recap.ID) <- c("ID", "Freq")
+
+recap.ID %>% left_join(dat.1, by = "ID") -> recap.data
+```
+
+Make length and capture date matrices
+```{r}
+unique.ID <- recap.ID$ID
+size.mat <- date.mat <- matrix(nrow = length(unique.ID),
+                              ncol = max(recap.data$Freq))
+
+date.1 <- structure(numeric(length(unique.ID)), class = "Date")
+n.vec <- vector(mode = "numeric", length = length(unique.ID))
+
+k <- 1
+for (k in 1:length(unique.ID)){
+  tmp.ID <- filter(recap.data, ID == unique.ID[k])
+  size.mat[k, 1:nrow(tmp.ID)] <- tmp.ID$CCL
+  date.mat[k, 1:nrow(tmp.ID)] <- tmp.ID$DATE - min(tmp.ID$DATE)
+  date.1[k] <- min(tmp.ID$DATE)
+  n.vec[k] <- nrow(tmp.ID)
+}
+
+date.mat <- date.mat[, 2:ncol(date.mat)]/365
+```
+
+Then, send this to jags with a couple models.
+
+```{r}
+MCMC.params <- list(model.file = "models/Model_RlinfRk_L.txt",
+                    n.chains = 3,
+                    n.samples = 50000,
+                    n.burnin = 30000,
+                    n.thin = 5)
+
+if (!file.exists( "RData/Rlinf_Rk_L.rds")){
+  parameters <- c('CV', 'k', 'A', 
+                  'Linf', 'LinfMu', 'LinfSD', 
+                  'Shape', 'rate', #'kAlpha', 'kBeta', 
+                  'deviance')
+  
+  jags.data <- list(nIndiv = length(unique.ID),
+                    n = n.vec,
+                    L = size.mat,
+                    t = date.mat)
+  
+  initsFunction <- function(d){
+    #kAlpha <- runif(1, 0, 10)
+    #kBeta <- runif(1, 0, 10)
+    k <- rbeta(length(unique.ID), 1, 1)
+    CV <- rbeta(1, 1, 1)
+    Shape <- runif(1, 0, 10)
+    rate <- runif(1, 0, 10)
+    LinfMu <- runif(1, 90, 200)
+    LinfTau <- rgamma(1, 1, 1)
+    A <- list(k = k, CV = CV,
+              Shape = Shape, rate = rate)
+    return(A)
+  }
+  
+  # Create a list of length nChains with z in initsFunction
+  #inList <- list(CH, f)
+  inits <- lapply(c(1:MCMC.params$n.chains), initsFunction)
+  
+  jm.1 <- jags(data = jags.data,
+               #inits = inits,
+               parameters.to.save= parameters,
+               model.file = MCMC.params$model.file,
+               n.chains = MCMC.params$n.chains,
+               n.burnin = MCMC.params$n.burnin,
+               n.thin = MCMC.params$n.thin,
+               n.iter = MCMC.params$n.samples,
+               DIC = T, 
+               parallel=T)
+  
+  if(save.rds) saveRDS(jm.1, file = "RData/Rlinf_Rk_L.rds")
+  
+} else {
+  jm.1 <- readRDS(file = "RData/Rlinf_Rk_L.rds")
+}
+
+```
+
+look at the posterior;
+
+```{r}
+mcmc_trace(jm.1$samples, c("LinfMu"))
+mcmc_dens(jm.1$samples, c("LinfMu"))
+
+```
+
+```{r}
+mcmc_trace(jm.1$samples, c("CV"))
+mcmc_dens(jm.1$samples, c("CV"))
+
+```
+
+Plot what we found
+```{r}
+Linf <- jm.1$q50$Linf
+k <- jm.1$q50$k
+A <- jm.1$q50$A
+time.vec <- 0:49
+
+time.mat <- L_Exp <- matrix(ncol = length(unique.ID), nrow = length(time.vec))
+
+i <- 1
+for (i in 1:length(unique.ID)){
+  L_Exp[,i] <-  Linf[i] * (1.0 - exp(-k[i] * (A[i] + time.vec)))
+  time.mat[,i] <- A[i] + time.vec
+}
+
+colnames(L_Exp) <- unique.ID
+L_Exp_long <- melt(L_Exp)
+colnames(L_Exp_long) <- c("time1", "ID", "CCL")
+
+colnames(time.mat) <- unique.ID
+time_long <- melt(time.mat)
+colnames(time_long) <- c("time1", "ID", "Years")
+
+L_Exp_long$Years <- time_long$Years
+
+ggplot(data = L_Exp_long) + 
+  geom_path(aes(x = Years, y = CCL, color = ID)) +
+  theme(legend.position = "none")
+```
+
+The model seems to fit fine, although the Rhat statistic was not all great so I probably have to increase the number of MCMC samples. 
+
+I also want to run fixed k model
+```{r}
+if (!file.exists( "RData/Rlinf_Fk.rds")){
+  MCMC.params$model.file <- "models/Model_Rlinf_Fk.txt"
+  parameters <- c('CV', 'k', 'A', 
+                  'Linf', 'LinfMu', 'LinfSD', 
+                  'Shape', 'rate', #'kAlpha', 'kBeta', 
+                  'deviance')
+  
+  jags.data <- list(nIndiv = length(unique.ID),
+                    n = n.vec,
+                    L = size.mat,
+                    t = date.mat)
+  
+  jm.2 <- jags(data = jags.data,
+               #inits = inits,
+               parameters.to.save= parameters,
+               model.file = MCMC.params$model.file,
+               n.chains = MCMC.params$n.chains,
+               n.burnin = MCMC.params$n.burnin,
+               n.thin = MCMC.params$n.thin,
+               n.iter = MCMC.params$n.samples,
+               DIC = T, 
+               parallel=T)
+  
+  if(save.rds) saveRDS(jm.2, file = "RData/Rlinf_Fk.rds")
+  
+} else {
+  jm.2 <- readRDS(file = "RData/Rlinf_Fk.rds")
+}
+```
+
+
+```{r}
+mcmc_trace(jm.2$samples, c("k"))
+mcmc_dens(jm.2$samples, c("k"))
+
+```
+
+These don't look so good... 
+
+Next, try to find growth rates between early years and the last 5 years. 
+
+```{r}
+dat.1 %>% filter(DATE < as.Date("2015-01-01")) -> dat.1.pre2015
+dat.1 %>% filter(DATE >= as.Date("2015-01-01")) -> dat.1.post2015
+
+n.cap.ID.pre2015 <- table(dat.1.pre2015$ID)
+recap.ID.pre2015 <- data.frame(n.cap.ID.pre2015[n.cap.ID.pre2015 > 1])
+colnames(recap.ID.pre2015) <- c("ID", "Freq")
+
+recap.ID.pre2015 %>% left_join(dat.1.pre2015, by = "ID") -> recap.data.pre2015
+
+n.cap.ID.post2015 <- table(dat.1.post2015$ID)
+recap.ID.post2015 <- data.frame(n.cap.ID.post2015[n.cap.ID.post2015 > 1])
+colnames(recap.ID.post2015) <- c("ID", "Freq")
+
+recap.ID.post2015 %>% left_join(dat.1.post2015, by = "ID") -> recap.data.post2015
+
+```
+```{r}
+unique.ID.pre2015 <- recap.ID.pre2015$ID
+size.mat.pre2015 <- date.mat.pre2015 <- matrix(nrow = length(unique.ID.pre2015),
+                                               ncol = max(recap.data.pre2015$Freq))
+
+date.1.pre2015 <- structure(numeric(length(unique.ID.pre2015)), class = "Date")
+n.vec.pre2015 <- vector(mode = "numeric", length = length(unique.ID.pre2015))
+
+k <- 1
+for (k in 1:length(unique.ID.pre2015)){
+  tmp.ID <- filter(recap.data.pre2015, ID == unique.ID.pre2015[k])
+  size.mat.pre2015[k, 1:nrow(tmp.ID)] <- tmp.ID$CCL
+  date.mat.pre2015[k, 1:nrow(tmp.ID)] <- tmp.ID$DATE - min(tmp.ID$DATE)
+  date.1.pre2015[k] <- min(tmp.ID$DATE)
+  n.vec.pre2015[k] <- nrow(tmp.ID)
+}
+
+date.mat.pre2015 <- date.mat.pre2015[, 2:ncol(date.mat.pre2015)]/365
+
+unique.ID.post2015 <- recap.ID.post2015$ID
+size.mat.post2015 <- date.mat.post2015 <- matrix(nrow = length(unique.ID.post2015),
+                                               ncol = max(recap.data.post2015$Freq))
+
+date.1.post2015 <- structure(numeric(length(unique.ID.post2015)), class = "Date")
+n.vec.post2015 <- vector(mode = "numeric", length = length(unique.ID.post2015))
+
+k <- 1
+for (k in 1:length(unique.ID.post2015)){
+  tmp.ID <- filter(recap.data.post2015, ID == unique.ID.post2015[k])
+  size.mat.post2015[k, 1:nrow(tmp.ID)] <- tmp.ID$CCL
+  date.mat.post2015[k, 1:nrow(tmp.ID)] <- tmp.ID$DATE - min(tmp.ID$DATE)
+  date.1.post2015[k] <- min(tmp.ID$DATE)
+  n.vec.post2015[k] <- nrow(tmp.ID)
+}
+
+date.mat.post2015 <- date.mat.post2015[, 2:ncol(date.mat.post2015)]/365
+
+```
+
+run the models on both datasets
+
+```{r}
+MCMC.params <- list(model.file = "models/Model_RlinfRk_L.txt",
+                    n.chains = 3,
+                    n.samples = 50000,
+                    n.burnin = 30000,
+                    n.thin = 5)
+
+if (!file.exists( "RData/Rlinf_Rk_pre2015.rds")){
+  parameters <- c('CV', 'k', 'A', 
+                  'Linf', 'LinfMu', 'LinfSD', 
+                  'Shape', 'rate', #'kAlpha', 'kBeta', 
+                  'deviance')
+  
+  jags.data <- list(nIndiv = length(unique.ID.pre2015),
+                    n = n.vec.pre2015,
+                    L = size.mat.pre2015,
+                    t = date.mat.pre2015)
+  
+  jm.3 <- jags(data = jags.data,
+               #inits = inits,
+               parameters.to.save= parameters,
+               model.file = MCMC.params$model.file,
+               n.chains = MCMC.params$n.chains,
+               n.burnin = MCMC.params$n.burnin,
+               n.thin = MCMC.params$n.thin,
+               n.iter = MCMC.params$n.samples,
+               DIC = T, 
+               parallel=T)
+  
+  if(save.rds) saveRDS(jm.3, file = "RData/Rlinf_Rk_pre2015.rds")
+  
+} else {
+  jm.3 <- readRDS(file = "RData/Rlinf_Rk_pre2015.rds")
+}
+
+if (!file.exists( "RData/Rlinf_Rk_post2015.rds")){
+  parameters <- c('CV', 'k', 'A', 
+                  'Linf', 'LinfMu', 'LinfSD', 
+                  'Shape', 'rate', #'kAlpha', 'kBeta', 
+                  'deviance')
+  
+  jags.data <- list(nIndiv = length(unique.ID.post2015),
+                    n = n.vec.post2015,
+          
+                    L = size.mat.post2015,
+                    t = date.mat.post2015)
+  
+  jm.4 <- jags(data = jags.data,
+               #inits = inits,
+               parameters.to.save= parameters,
+               model.file = MCMC.params$model.file,
+               n.chains = MCMC.params$n.chains,
+               n.burnin = MCMC.params$n.burnin,
+               n.thin = MCMC.params$n.thin,
+               n.iter = MCMC.params$n.samples,
+               DIC = T, 
+               parallel=T)
+  
+  if(save.rds) saveRDS(jm.4, file = "RData/Rlinf_Rk_post2015.rds")
+  
+} else {
+  jm.4 <- readRDS(file = "RData/Rlinf_Rk_post2015.rds")
+}
+
+```
+
+
+```{r}
+mcmc_trace(jm.3$samples, c("CV"))
+mcmc_dens(jm.3$samples, c("CV"))
+
+```
+
+
+```{r}
+Linf <- jm.3$q50$Linf
+k <- jm.3$q50$k
+A <- jm.3$q50$A
+time.vec <- 0:19
+
+time.mat.pre2015 <- L_Exp.pre2015 <- matrix(ncol = length(unique.ID.pre2015), 
+                                            nrow = length(time.vec))
+
+i <- 1
+for (i in 1:length(unique.ID.pre2015)){
+  L_Exp.pre2015[,i] <-  Linf[i] * (1.0 - exp(-k[i] * (A[i] + time.vec)))
+  time.mat.pre2015[,i] <- A[i] + time.vec
+}
+
+colnames(L_Exp.pre2015) <- unique.ID.pre2015
+L_Exp_long.pre2015 <- melt(L_Exp.pre2015)
+colnames(L_Exp_long.pre2015) <- c("time1", "ID", "CCL")
+
+colnames(time.mat.pre2015) <- unique.ID.pre2015
+time_long.pre2015 <- melt(time.mat.pre2015)
+colnames(time_long.pre2015) <- c("time1", "ID", "Years")
+
+L_Exp_long.pre2015$Years <- time_long.pre2015$Years
+
+ggplot(data = L_Exp_long.pre2015) + 
+  geom_path(aes(x = Years, y = CCL, color = ID)) +
+  theme(legend.position = "none")
+```
+
+
+
+```{r}
+Linf <- jm.4$q50$Linf
+k <- jm.4$q50$k
+A <- jm.4$q50$A
+time.vec <- 0:60
+
+time.mat.post2015 <- L_Exp.post2015 <- matrix(ncol = length(unique.ID.post2015), 
+                                            nrow = length(time.vec))
+
+i <- 1
+for (i in 1:length(unique.ID.post2015)){
+  L_Exp.post2015[,i] <-  Linf[i] * (1.0 - exp(-k[i] * (A[i] + time.vec)))
+  time.mat.post2015[,i] <- A[i] + time.vec
+}
+
+colnames(L_Exp.post2015) <- unique.ID.post2015
+L_Exp_long.post2015 <- melt(L_Exp.post2015)
+colnames(L_Exp_long.post2015) <- c("time1", "ID", "CCL")
+
+colnames(time.mat.post2015) <- unique.ID.post2015
+time_long.post2015 <- melt(time.mat.post2015)
+colnames(time_long.post2015) <- c("time1", "ID", "Years")
+
+L_Exp_long.post2015$Years <- time_long.post2015$Years
+
+ggplot(data = L_Exp_long.post2015) + 
+  geom_path(aes(x = Years, y = CCL, color = ID)) +
+  theme(legend.position = "none")
+```
+
+
+Compare k parameters between the time periods:
+
+```{r}
+
+k.pre2015 <- extract.posterior("k", jm.3$samples)
+k.pre2015.stats <- data.frame(q50 = apply(k.pre2015, 
+                                          MARGIN = 2, 
+                                          FUN = median),
+                              q2.5 = apply(k.pre2015,
+                                           MARGIN = 2,
+                                           FUN = quantile, 0.025),
+                              q97.5 = apply(k.pre2015,
+                                            MARGIN = 2,
+                                            FUN = quantile, 0.975))
+summary(k.pre2015.stats)
+
+k.post2015 <- extract.posterior("k", jm.4$samples)
+k.post2015.stats <- data.frame(q50 = apply(k.post2015, 
+                                           MARGIN = 2, 
+                                           FUN = median),
+                               q2.5 = apply(k.post2015,
+                                            MARGIN = 2,
+                                            FUN = quantile, 0.025),
+                               q97.5 = apply(k.post2015,
+                                             MARGIN = 2,
+                                             FUN = quantile, 0.975))
+summary(k.post2015.stats)
+```
+
+```{r}
+ggplot() + 
+  geom_histogram(data = k.pre2015.stats,
+                 aes(x = q50),
+                 fill = "green",
+                 binwidth = 0.02) + 
+  geom_histogram(data = k.post2015.stats,
+                 aes(x = q50),
+                 fill = "blue",
+                 binwidth = 0.02)
+```
+
+
+```{r}
+ggplot() + 
+  geom_histogram(data = k.pre2015.stats,
+                 aes(x = q97.5),
+                 fill = "green",
+                 binwidth = 0.03) + 
+  geom_histogram(data = k.post2015.stats,
+                 aes(x = q97.5),
+                 fill = "blue",
+                 binwidth = 0.03)
+```
+
+```{r}
+ggplot() + 
+  geom_histogram(data = k.pre2015.stats,
+                 aes(x = q2.5),
+                 fill = "green",
+                 binwidth = 0.008) + 
+  geom_histogram(data = k.post2015.stats,
+                 aes(x = q2.5),
+                 fill = "blue",
+                 binwidth = 0.008)
+```
+
