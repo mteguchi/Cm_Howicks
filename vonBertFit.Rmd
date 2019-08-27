@@ -261,7 +261,7 @@ date.mat.post2015 <- date.mat.post2015[, 2:ncol(date.mat.post2015)]/365
 run the models on both datasets
 
 ```{r}
-MCMC$model.file <- "models/Model_RlinfRk_L.txt"
+MCMC.params$model.file <- "models/Model_RlinfRk_L.txt"
 
 if (!file.exists( "RData/Rlinf_Rk_pre2015.rds")){
   parameters <- c('CV', 'k', 'A', 
