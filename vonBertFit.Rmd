@@ -61,8 +61,8 @@ Then, send this to jags with a couple models.
 ```{r}
 MCMC.params <- list(model.file = "models/Model_RlinfRk_L.txt",
                     n.chains = 3,
-                    n.samples = 50000,
-                    n.burnin = 30000,
+                    n.samples = 100000,
+                    n.burnin = 60000,
                     n.thin = 5)
 
 if (!file.exists( "RData/Rlinf_Rk_L.rds")){
@@ -261,11 +261,7 @@ date.mat.post2015 <- date.mat.post2015[, 2:ncol(date.mat.post2015)]/365
 run the models on both datasets
 
 ```{r}
-MCMC.params <- list(model.file = "models/Model_RlinfRk_L.txt",
-                    n.chains = 3,
-                    n.samples = 50000,
-                    n.burnin = 30000,
-                    n.thin = 5)
+MCMC$model.file <- "models/Model_RlinfRk_L.txt"
 
 if (!file.exists( "RData/Rlinf_Rk_pre2015.rds")){
   parameters <- c('CV', 'k', 'A', 
