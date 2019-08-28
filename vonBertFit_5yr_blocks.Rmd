@@ -175,7 +175,7 @@ for (k in 1:n.blocks){
                              q97.5 = apply(k.jm,
                                            MARGIN = 2,
                                            FUN = quantile, 0.975),
-                             time = paste0(begin.date, "_", end.date))
+                             time = paste0(uniq.years[k], "-", uniq.years[k+4]))
   
 }
 ```
@@ -191,7 +191,7 @@ ggplot(data = k.stats.df) +
 
 ```
 
-
+Because of the small sample size of 2004-2008, I would not trust the result there. The change from 2008-2017 to 2014-2018 is quite large... but the density plot for 2008-2017 is not great.  
 
 
 
