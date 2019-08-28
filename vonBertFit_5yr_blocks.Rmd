@@ -174,11 +174,22 @@ for (k in 1:n.blocks){
                                           FUN = quantile, 0.025),
                              q97.5 = apply(k.jm,
                                            MARGIN = 2,
-                                           FUN = quantile, 0.975))
+                                           FUN = quantile, 0.975),
+                             time = paste0(begin.date, "_", end.date))
   
 }
 ```
 
+Then, plot them by date
+```{r}
+
+k.stats.df <- do.call(rbind, k.stats)
+
+ggplot(data = k.stats.df) + 
+  geom_density_ridges2(aes(y = time, x = q50),
+                       fill = "red")
+
+```
 
 
 
