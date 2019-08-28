@@ -1,4 +1,75 @@
 
+
+extract.time.block <- function(dat.1, begin.date = "1970-01-01", 
+                               end.date = "2019-12-31"){
+  dat.1 %>% filter(DATE <= as.Date(end.date) &
+                     DATE >= as.Date(begin.date)) -> dat.1.filtered
+
+  n.cap.ID <- table(dat.1.filtered$ID)
+  recap.ID <- data.frame(n.cap.ID[n.cap.ID > 1])
+  colnames(recap.ID) <- c("ID", "Freq")
+  
+  recap.ID %>% left_join(dat.1.filtered, by = "ID") -> recap.data
+  
+  unique.ID <- recap.ID$ID
+  
+  size.mat <- date.mat <- matrix(nrow = length(unique.ID),
+                                 ncol = max(recap.data$Freq))
+  
+  date.1 <- structure(numeric(length(unique.ID)), 
+                      class = "Date")
+  n.vec <- vector(mode = "numeric", 
+                  length = length(unique.ID))
+  
+  k <- 1
+  for (k in 1:length(unique.ID)){
+    tmp.ID <- filter(recap.data, ID == unique.ID[k])
+    size.mat[k, 1:nrow(tmp.ID)] <- tmp.ID$CCL
+    date.mat[k, 1:nrow(tmp.ID)] <- tmp.ID$DATE - min(tmp.ID$DATE)
+    date.1[k] <- min(tmp.ID$DATE)
+    n.vec[k] <- nrow(tmp.ID)
+  }
+  
+  # convert into years not days
+  date.mat <- date.mat[, 2:ncol(date.mat)]/365
+  
+  return(list(size = size.mat,
+              date = date.mat,
+              first.date = date.1,
+              n = n.vec,
+              ID = unique.ID))
+}
+
+
+fit.vonBert <- function(MCMC.params = list(model.file = "models/Model_RlinfRk_L.txt",
+                                           n.chains = 3,
+                                           n.samples = 100000,
+                                           n.burnin = 60000,
+                                           n.thin = 5),
+                        parameters = c('CV', 'k', 'A', 
+                                       'Linf', 'LinfMu', 'LinfSD', 
+                                       'Shape', 'rate', #'kAlpha', 'kBeta', 
+                                       'deviance'),
+                        jags.data, 
+                        save.rds = FALSE,
+                        filename = "NotSaved"){
+  
+  jm.3 <- jags(data = jags.data,
+               #inits = inits,
+               parameters.to.save= parameters,
+               model.file = MCMC.params$model.file,
+               n.chains = MCMC.params$n.chains,
+               n.burnin = MCMC.params$n.burnin,
+               n.thin = MCMC.params$n.thin,
+               n.iter = MCMC.params$n.samples,
+               DIC = T, 
+               parallel=T)
+  
+  if(save.rds) saveRDS(jm.3, file = filename)
+  
+  return(jm.3)
+}
+
 get.data.clack <- function(filename){
   col.def <- cols(PTAG = col_character(),
                   TAG = col_integer(),

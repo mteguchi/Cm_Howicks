@@ -219,6 +219,9 @@ colnames(recap.ID.post2015) <- c("ID", "Freq")
 recap.ID.post2015 %>% left_join(dat.1.post2015, by = "ID") -> recap.data.post2015
 
 ```
+
+
+Pull out CCL and date:
 ```{r}
 unique.ID.pre2015 <- recap.ID.pre2015$ID
 size.mat.pre2015 <- date.mat.pre2015 <- matrix(nrow = length(unique.ID.pre2015),
